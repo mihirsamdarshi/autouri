@@ -5,4 +5,4 @@ from .httpurl import HTTPURL
 from .s3uri import S3URI
 
 __all__ = ["GCSURI", "HTTPURL", "S3URI", "AbsPath", "AutoURI", "URIBase"]
-__version__ = "0.4.4"
+__version__ = "0.5.0b0"
