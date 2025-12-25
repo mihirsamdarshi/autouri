@@ -25,6 +25,14 @@ dependencies = [
     "ntplib",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "ruff",
+    "pyrefly",
+    "boto3-stubs[s3]>=1.42.16",
+]
+
 [project.urls]
 Homepage = "https://github.com/ENCODE-DCC/autouri"
 
@@ -40,3 +48,24 @@ packages = ["autouri"]
 
 [tool.setuptools.dynamic]
 version = { attr = "autouri.__version__" }
+
+[tool.ruff]
+line-length = 96
+show-fixes = true
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812",
+    "ANN401",
+    "D203",
+    "D212",
+    "D401",
+    "PTH"
+]
+# Specify per-file ignores for Ruff
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["D100", "D102", "D103", "S101", "I001", "SLF001"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
