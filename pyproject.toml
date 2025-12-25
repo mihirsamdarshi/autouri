@@ -1,0 +1,42 @@
+[project]
+name = "autouri"
+dynamic = ["version"]
+description = "Automatic localization for various URIs (s3://, gs://, http://, https:// and local path)"
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+license = { text = "MIT License" }
+authors = [
+    { name = "Jin wook Lee", email = "leepc12@gmail.com" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+    "requests",
+    "pyopenssl",
+    "google-cloud-storage",
+    "boto3",
+    "awscli",
+    "dateparser",
+    "filelock>=3.12.0",
+    "six>=1.13.0",
+    "ntplib",
+]
+
+[project.urls]
+Homepage = "https://github.com/ENCODE-DCC/autouri"
+
+[project.scripts]
+autouri = "autouri.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["autouri"]
+
+[tool.setuptools.dynamic]
+version = { attr = "autouri.__version__" }
