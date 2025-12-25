@@ -1,8 +1,12 @@
-"""Important update to allow relative path for some file extensions:
+"""Local filesystem implementation for AutoURI.
+
+Important update to allow relative path for some file extensions:
 As AbsPath's name implies, it was originally designed to have an absolute path only.
 but will allow relative path of a file if it exists on CWD and has an allowed extension
 (,json, .csv, .tsv). Such relative path will be automatically converted to absolute path.
 """
+
+from __future__ import annotations
 
 import errno
 import glob
@@ -11,7 +15,6 @@ import logging
 import os
 import shutil
 from shutil import SameFileError, copyfile
-from typing import Dict, Optional
 
 from filelock import SoftFileLock
 
@@ -43,6 +46,8 @@ def convert_relpath_to_abspath_if_valid(
 
 class AbsPath(URIBase):
     """
+    File-path based implementation of URIBase.
+
     Class constants:
         LOC_PREFIX (inherited):
             Path prefix for localization. Inherited from URIBase class.
@@ -53,13 +58,13 @@ class AbsPath(URIBase):
             Chunk size to calculate md5 hash of a local file.
     """
 
-    MAP_PATH_TO_URL: Dict[str, str] = dict()
+    MAP_PATH_TO_URL: dict[str, str] = {}
     MD5_CALC_CHUNK_SIZE: int = 4096
 
     _LOC_SUFFIX = ".local"
     _PATH_SEP = os.sep
 
-    def __init__(self, uri, thread_id=-1):
+    def __init__(self, uri, thread_id=-1) -> None:
         if isinstance(uri, str):
             uri = os.path.expanduser(uri)
 
@@ -71,21 +76,22 @@ class AbsPath(URIBase):
     def is_valid(self):
         return os.path.isabs(self._uri)
 
-    def rmdir(self, dry_run=False, no_lock=False):
+    def rmdir(self, dry_run: bool = False, num_threads: int = 1, no_lock: bool = False) -> None:
         """Do `rm -rf` instead of deleting individual files.
+
         For dry-run mode, call base class' method to show files to be deleted.
         """
         if not os.path.exists(self._uri):
-            raise FileNotFoundError(
-                "Directory does not exist. deleted already? {dir}".format(dir=self._uri)
-            )
+            msg = f"Directory does not exist. deleted already? {self._uri}"
+            raise FileNotFoundError(msg)
         if dry_run:
-            super().rmdir(dry_run=True, no_lock=no_lock)
+            super().rmdir(dry_run=True, num_threads=num_threads, no_lock=no_lock)
         else:
             shutil.rmtree(self._uri)
 
     def _get_lock(self, timeout=None, poll_interval=None):
         """Use filelock.SoftFileLock for AbsPath.
+
         filelock.SoftFileLock watches a .lock file with faster polling.
         It's stable and also platform-independent
 
@@ -97,12 +103,12 @@ class AbsPath(URIBase):
         if timeout is None:
             timeout = AbsPath.LOCK_TIMEOUT
         # create directory and use default poll_interval
-        u_lock = AutoURI(self._uri + AbsPath.LOCK_FILE_EXT)
+        u_lock = AbsPath(self._uri + AbsPath.LOCK_FILE_EXT)
         u_lock.mkdir_dirname()
         return SoftFileLock(u_lock._uri, timeout=timeout)
 
     def get_metadata(self, skip_md5=False, make_md5_file=False):
-        """If md5 file doesn't exist then use hashlib.md5() to calculate md5 hash"""
+        """If md5 file doesn't exist then use hashlib.md5() to calculate md5 hash."""
         exists = os.path.exists(self._uri)
         mt, sz, md5 = None, None, None
         if exists:
@@ -118,10 +124,7 @@ class AbsPath(URIBase):
         return URIMetadata(exists=exists, mtime=mt, size=sz, md5=md5)
 
     def read(self, byte=False):
-        if byte:
-            param = "rb"
-        else:
-            param = "r"
+        param = "rb" if byte else "r"
         with open(self._uri, param) as fp:
             return fp.read()
 
@@ -133,21 +136,17 @@ class AbsPath(URIBase):
                 result.append(os.path.abspath(f))
         return result
 
-    def _write(self, s):
+    def _write(self, s) -> None:
         self.mkdir_dirname()
-        if isinstance(s, str):
-            param = "w"
-        else:
-            param = "wb"
+        param = "w" if isinstance(s, str) else "wb"
         with open(self._uri, param) as fp:
             fp.write(s)
-        return
 
     def _rm(self):
         return os.remove(self._uri)
 
-    def _cp(self, dest_uri):
-        """Copy from AbsPath to other classes"""
+    def _cp(self, dest_uri) -> bool:
+        """Copy from AbsPath to other classes."""
         dest_uri = AutoURI(dest_uri)
 
         if isinstance(dest_uri, AbsPath):
@@ -156,9 +155,7 @@ class AbsPath(URIBase):
                 copyfile(self._uri, dest_uri._uri, follow_symlinks=True)
             except SameFileError:
                 logger.debug(
-                    "cp: ignored SameFileError. src={src}, dest={dest}".format(
-                        src=self._uri, dest=dest_uri._uri
-                    )
+                    "cp: ignored SameFileError. src=%s, dest=%s", self._uri, dest_uri._uri
                 )
                 if os.path.islink(dest_uri._uri):
                     dest_uri._rm()
@@ -167,11 +164,16 @@ class AbsPath(URIBase):
             return True
         return False
 
-    def _cp_from(self, src_uri):
+    def _cp_from(self, src_uri) -> bool:
         return False
 
-    def get_mapped_url(self, map_path_to_url=None) -> Optional[str]:
+    def get_mapped_url(self, map_path_to_url=None) -> str | None:
         """
+        Generates a mapped URL for the current path.
+
+        Replaces a path prefix with a corresponding URL prefix based on a mapping provided, or
+        a default mapping if none is supplied.
+
         Args:
             map_path_to_url:
                 dict with k, v where k is a path prefix and v is a URL prefix
@@ -185,17 +187,16 @@ class AbsPath(URIBase):
                 return self._uri.replace(k, v, 1)
         return None
 
-    def mkdir_dirname(self):
-        """Create a directory but raise if no write permission on it"""
+    def mkdir_dirname(self) -> None:
+        """Create a directory but raise if no write permission on it."""
         os.makedirs(self.dirname, exist_ok=True)
         if not os.access(self.dirname, os.W_OK):
-            raise PermissionError(
-                "No permission to write on directory: {d}".format(d=self.dirname)
-            )
-        return
+            msg = f"No permission to write on directory: {self.dirname}"
+            raise PermissionError(msg)
 
-    def soft_link(self, target, force=False):
+    def soft_link(self, target, force=False) -> None:
         """Make a soft link of self on target absolute path.
+
         If target already exists delete it and create a link.
 
         Args:
@@ -206,9 +207,8 @@ class AbsPath(URIBase):
         """
         target = AbsPath(target)
         if not target.is_valid:
-            raise ValueError(
-                "Target path is not a valid abs path: {t}.".format(t=target.uri)
-            )
+            msg = f"Target path is not a valid abs path: {target.uri}."
+            raise ValueError(msg)
         try:
             target.mkdir_dirname()
             os.symlink(self._uri, target._uri)
@@ -217,38 +217,33 @@ class AbsPath(URIBase):
                 target.rm()
                 os.symlink(self._uri, target._uri)
             else:
-                raise e
+                raise
 
     def __calc_md5sum(self):
-        """Expensive md5 calculation"""
-        logger.debug(
-            "calculating md5sum hash of local file: {file}".format(file=self._uri)
-        )
-        hash_md5 = hashlib.md5()
+        """Expensive md5 calculation."""
+        logger.debug("calculating md5sum hash of local file: %s", self._uri)
+        hash_md5 = hashlib.md5(usedforsecurity=False)
         with open(self._uri, "rb") as fp:
             for chunk in iter(lambda: fp.read(AbsPath.MD5_CALC_CHUNK_SIZE), b""):
                 hash_md5.update(chunk)
 
-        logger.debug(
-            "calculating md5sum is done for local file: {file}".format(file=self._uri)
-        )
+        logger.debug("calculating md5sum is done for local file: %s", self._uri)
         return hash_md5.hexdigest()
 
     @staticmethod
     def get_abspath_if_exists(path):
         if isinstance(path, URIBase):
             path = path._uri
-        if isinstance(path, str):
-            if os.path.exists(os.path.expanduser(path)):
-                return os.path.abspath(os.path.expanduser(path))
+        if isinstance(path, str) and os.path.exists(os.path.expanduser(path)):
+            return os.path.abspath(os.path.expanduser(path))
         return path
 
     @staticmethod
     def init_abspath(
-        loc_prefix: Optional[str] = None,
-        map_path_to_url: Optional[Dict[str, str]] = None,
-        md5_calc_chunk_size: Optional[int] = None,
-    ):
+        loc_prefix: str | None = None,
+        map_path_to_url: dict[str, str] | None = None,
+        md5_calc_chunk_size: int | None = None,
+    ) -> None:
         if loc_prefix is not None:
             AbsPath.LOC_PREFIX = loc_prefix
         if map_path_to_url is not None:

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import hashlib
 import logging
-from typing import Optional
+from typing import NoReturn
 
 import requests
 
@@ -16,6 +18,8 @@ class ReadOnlyStorageError(Exception):
 
 class HTTPURL(URIBase):
     """
+    Implementation of URIBase for HTTP/HTTPS URLs.
+
     Class constants:
         HTTP_CHUNK_SIZE:
             Dict to replace path prefix with URL prefix.
@@ -27,12 +31,13 @@ class HTTPURL(URIBase):
     _LOC_SUFFIX = ".url"
     _SCHEMES = ("http://", "https://")
 
-    def __init__(self, uri, thread_id=-1):
+    def __init__(self, uri, thread_id=-1) -> None:
         super().__init__(uri, thread_id=thread_id)
 
     @property
     def loc_dirname(self):
         """Dirname of URL is not very meaningful.
+
         Therefore, hash string of the whole URL string is used instead for localization.
         """
         return hashlib.md5(self._uri.encode("utf-8")).hexdigest()
@@ -40,19 +45,21 @@ class HTTPURL(URIBase):
     @property
     def basename(self):
         """Parses a URL to get a basename.
+
         This class can only work with a URL with an explicit basename
         which can be suffixed with extra parameters starting with ? only.
         """
         return super().basename.split("?", 1)[0]
 
-    def _get_lock(self, timeout=None, poll_interval=None):
-        raise ReadOnlyStorageError(
-            "Cannot lock on a read-only storage. {f}".format(f=self._uri)
-        )
+    def _get_lock(self, timeout=None, poll_interval=None) -> NoReturn:
+        msg = f"Cannot lock on a read-only storage. {self._uri}"
+        raise ReadOnlyStorageError(msg)
 
     def get_metadata(self, skip_md5=False, make_md5_file=False):
-        """Known issues about mtime:
+        """
+        Get metadata from an object at an HTTP URL.
 
+        Known issues about mtime:
         For URLs hosted on GCS (Google Cloud Storage) buckets, mtime will point to creation time
         if GCS object already existed and is modified. mtime of GCS object itself is accurate
         but corresponding URL on a public bucket will still have
@@ -103,7 +110,11 @@ class HTTPURL(URIBase):
 
         return URIMetadata(exists=exists, mtime=mt, size=sz, md5=md5)
 
-    def read(self, byte=False):
+    @overload
+    def read(self, byte: bool = False) -> str: ...
+    @overload
+    def read(self, byte: bool = True) -> bytes: ...
+    def read(self, byte: bool = False) -> str | bytes:
         r = requests.get(
             self._uri,
             stream=True,
@@ -114,26 +125,22 @@ class HTTPURL(URIBase):
         b = r.content
         if byte:
             return b
-        else:
-            return b.decode()
+        return b.decode()
 
-    def find_all_files(self):
-        raise NotImplementedError("find_all_files() is not available for URLs.")
+    def find_all_files(self) -> NoReturn:
+        msg = "find_all_files() is not available for URLs."
+        raise NotImplementedError(msg)
 
-    def _write(self, s):
-        raise ReadOnlyStorageError(
-            "Cannot write on a read-only storage. {f}".format(f=self._uri)
-        )
+    def _write(self, s) -> NoReturn:
+        msg = f"Cannot write on a read-only storage. {self._uri}"
+        raise ReadOnlyStorageError(msg)
 
-    def _rm(self):
-        raise ReadOnlyStorageError(
-            "Cannot remove a file on a read-only storage. {f}".format(f=self._uri)
-        )
+    def _rm(self) -> NoReturn:
+        msg = f"Cannot remove a file on a read-only storage. {self._uri}"
+        raise ReadOnlyStorageError(msg)
 
-    def _cp(self, dest_uri):
-        """Copy from HTTPURL to
-        AbsPath
-        """
+    def _cp(self, dest_uri) -> bool:
+        """Copy from HTTPURL to AbsPath."""
         from autouri.abspath import AbsPath
 
         dest_uri = AutoURI(dest_uri)
@@ -154,21 +161,21 @@ class HTTPURL(URIBase):
             return True
         return False
 
-    def _cp_from(self, src_uri):
-        raise ReadOnlyStorageError(
-            "Cannot copy to a read-only storage. {f}".format(f=self._uri)
-        )
+    def _cp_from(self, src_uri) -> NoReturn:
+        msg = f"Cannot copy to a read-only storage. {self._uri}"
+        raise ReadOnlyStorageError(msg)
 
     @staticmethod
     def get_http_chunk_size() -> int:
         return HTTPURL.HTTP_CHUNK_SIZE
 
     @staticmethod
-    def init_httpurl(http_chunk_size: Optional[int] = None):
+    def init_httpurl(http_chunk_size: int | None = None) -> None:
         if http_chunk_size is not None:
             HTTPURL.HTTP_CHUNK_SIZE = http_chunk_size
         if HTTPURL.HTTP_CHUNK_SIZE % (256 * 1024) > 0:
-            raise ValueError(
+            msg = (
                 "HTTPURL.HTTP_CHUNK_SIZE must be a multiple of 256 KB (256*1024) "
                 "to be compatible with cloud storage APIs (GCS and AWS S3)."
             )
+            raise ValueError(msg)

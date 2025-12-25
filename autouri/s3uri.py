@@ -1,9 +1,14 @@
-"""S3 Bucket configuration:
+"""S3 implementation for AutoURI.
+
+S3 Bucket configuration:
     S3 Object versioning must be turned off
 """
+
+from __future__ import annotations
+
 import logging
 from tempfile import NamedTemporaryFile
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, overload
 
 import requests
 from boto3 import client
@@ -14,11 +19,15 @@ from .autouri import AutoURI, URIBase
 from .metadata import URIMetadata, get_seconds_from_epoch, parse_md5_str
 from .ntp_now import now_utc
 
+if TYPE_CHECKING:
+    from mypy_boto3_s3.client import S3Client
+
 logger = logging.getLogger(__name__)
 
 
 class S3URILock(BaseFileLock):
     """Locking without using S3 Object Lock.
+
     Without S3 object lock, boto3's put_object(), which is used for _write() and _cp() in this module,
     does not ensure consistency of multiple write operations at the same time.
     It overwrites for all write requests but the last object written.
@@ -37,17 +46,18 @@ class S3URILock(BaseFileLock):
 
     LOCK_FILE_EXPIRATION_SEC = 1800
 
-    def __init__(self, lock_file, timeout=900, poll_interval=10.0, no_lock=False):
+    def __init__(self, lock_file, timeout=900, poll_interval=10.0, no_lock=False) -> None:
         super().__init__(lock_file, timeout=timeout)
         self._poll_interval = poll_interval
         self._lock_read_delay = self._poll_interval / 10.0
 
     def acquire(self, timeout=None, poll_interval=5.0):
         """To use self._poll_interval instead of poll_interval in args."""
-        super().acquire(timeout=timeout, poll_interval=self._poll_interval)
+        return super().acquire(timeout=timeout, poll_interval=self._poll_interval)
 
-    def _acquire(self):
+    def _acquire(self) -> None:
         """Unlike GCSURI, this module does not use S3 Object locking.
+
         This will write id(self) on a .lock file.
         """
         u = S3URI(self.lock_file)
@@ -70,20 +80,20 @@ class S3URILock(BaseFileLock):
         except TypeError:
             # this happens if file exists and failed to get metadata, so u.mtime is None
             pass
-        return None
 
-    def _release(self):
+    def _release(self) -> None:
         u = S3URI(self.lock_file)
         try:
             u.rm(no_lock=True, silent=True)
             self._context.lock_file_fd = None
         except ClientError:
             pass
-        return None
 
 
 class S3URI(URIBase):
     """
+    S3 implementation of URIBase.
+
     Class constants:
         LOC_PREFIX (inherited):
             Path prefix for localization. Inherited from URIBase class.
@@ -109,7 +119,7 @@ class S3URI(URIBase):
     _LOC_SUFFIX = ".s3"
     _SCHEMES = ("s3://",)
 
-    def __init__(self, uri, thread_id=-1):
+    def __init__(self, uri, thread_id=-1) -> None:
         super().__init__(uri, thread_id=thread_id)
 
     def _get_lock(self, timeout=None, poll_interval=None):
@@ -130,9 +140,7 @@ class S3URI(URIBase):
         bucket, path = self.get_bucket_path()
 
         try:
-            m = cl.head_object(Bucket=bucket, Key=path)["ResponseMetadata"][
-                "HTTPHeaders"
-            ]
+            m = cl.head_object(Bucket=bucket, Key=path)["ResponseMetadata"]["HTTPHeaders"]
             # make keys lower-case
             headers = {k.lower(): v for k, v in m.items()}
             exists = True
@@ -157,7 +165,11 @@ class S3URI(URIBase):
 
         return URIMetadata(exists=exists, mtime=mt, size=sz, md5=md5)
 
-    def read(self, byte=False):
+    @overload
+    def read(self, byte: bool = False) -> str: ...
+    @overload
+    def read(self, byte: bool = True) -> bytes: ...
+    def read(self, byte: bool = False) -> str | bytes:
         cl = S3URI.get_boto3_client(self._thread_id)
         bucket, path = self.get_bucket_path()
 
@@ -166,7 +178,7 @@ class S3URI(URIBase):
             return obj["Body"].read()
         return obj["Body"].read().decode()
 
-    def find_all_files(self):
+    def find_all_files(self) -> list[str]:
         cl = S3URI.get_boto3_client(self._thread_id)
         bucket, path = self.get_bucket_path()
         sep = S3URI.get_path_sep()
@@ -182,29 +194,21 @@ class S3URI(URIBase):
                 result.append(uri)
         return result
 
-    def _write(self, s):
+    def _write(self, s) -> None:
         cl = S3URI.get_boto3_client(self._thread_id)
         bucket, path = self.get_bucket_path()
 
-        if isinstance(s, str):
-            b = s.encode("ascii")
-        else:
-            b = s
+        b = s.encode("ascii") if isinstance(s, str) else s
         cl.put_object(Bucket=bucket, Key=path, Body=b)
-        return
 
-    def _rm(self):
+    def _rm(self) -> None:
         cl = S3URI.get_boto3_client(self._thread_id)
         bucket, path = self.get_bucket_path()
 
         cl.delete_object(Bucket=bucket, Key=path)
-        return
 
-    def _cp(self, dest_uri):
-        """Copy from S3URI to
-        S3URI
-        AbsPath
-        """
+    def _cp(self, dest_uri) -> bool:
+        """Copy from S3URI to S3URI or AbsPath."""
         from .abspath import AbsPath
 
         dest_uri = AutoURI(dest_uri)
@@ -225,18 +229,15 @@ class S3URI(URIBase):
             )
             return True
 
-        elif isinstance(dest_uri, AbsPath):
+        if isinstance(dest_uri, AbsPath):
             dest_uri.mkdir_dirname()
             with open(dest_uri._uri, "wb") as fp:
                 cl.download_fileobj(Bucket=bucket, Key=path, Fileobj=fp)
             return True
         return False
 
-    def _cp_from(self, src_uri):
-        """Copy to S3URI from
-        AbsPath
-        HTTPURL
-        """
+    def _cp_from(self, src_uri) -> bool:
+        """Copy to S3URI from AbsPath or HTTPURL."""
         from .abspath import AbsPath
         from .httpurl import HTTPURL
 
@@ -248,7 +249,7 @@ class S3URI(URIBase):
             cl.upload_file(Filename=src_uri._uri, Bucket=bucket, Key=path)
             return True
 
-        elif isinstance(src_uri, HTTPURL):
+        if isinstance(src_uri, HTTPURL):
             r = requests.get(
                 src_uri._uri,
                 stream=True,
@@ -264,7 +265,7 @@ class S3URI(URIBase):
             return True
         return False
 
-    def get_bucket_path(self) -> Tuple[str, str]:
+    def get_bucket_path(self) -> tuple[str, str]:
         """Returns a tuple of URI's S3 bucket and path."""
         arr = self.uri_wo_scheme.split(S3URI.get_path_sep(), maxsplit=1)
         if len(arr) == 1:
@@ -281,9 +282,8 @@ class S3URI(URIBase):
             use_cached: Use a cached URL.
         """
         cache = S3URI._CACHED_PRESIGNED_URLS
-        if use_cached:
-            if cache is not None and self._uri in cache:
-                return cache[self._uri]
+        if use_cached and cache is not None and self._uri in cache:
+            return cache[self._uri]
         cl = S3URI.get_boto3_client(self._thread_id)
         bucket, path = self.get_bucket_path()
         duration = duration if duration is not None else S3URI.DURATION_PRESIGNED_URL
@@ -298,20 +298,19 @@ class S3URI(URIBase):
         return S3URI._S3_PUBLIC_URL_FORMAT.format(bucket=bucket, path=path)
 
     @staticmethod
-    def get_boto3_client(thread_id=-1) -> client:
+    def get_boto3_client(thread_id=-1) -> S3Client:
         if thread_id in S3URI._CACHED_BOTO3_CLIENTS:
             return S3URI._CACHED_BOTO3_CLIENTS[thread_id]
-        else:
-            cl = client("s3")
-            S3URI._CACHED_BOTO3_CLIENTS[thread_id] = cl
-            return cl
+        cl = client("s3")
+        S3URI._CACHED_BOTO3_CLIENTS[thread_id] = cl
+        return cl
 
     @staticmethod
     def init_s3uri(
-        loc_prefix: Optional[str] = None,
-        duration_presigned_url: Optional[int] = None,
-        s3_copy_object_file_size_limit: Optional[int] = None,
-    ):
+        loc_prefix: str | None = None,
+        duration_presigned_url: int | None = None,
+        s3_copy_object_file_size_limit: int | None = None,
+    ) -> None:
         if loc_prefix is not None:
             S3URI.LOC_PREFIX = loc_prefix
         if duration_presigned_url is not None:
