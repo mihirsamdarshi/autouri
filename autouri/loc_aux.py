@@ -1,9 +1,15 @@
+from __future__ import annotations
+
 import json
-from typing import Callable, Tuple
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
-def recurse_json(contents: str, fnc: Callable) -> Tuple[str, bool]:
+def recurse_json(contents: str, fnc: Callable) -> tuple[str, bool]:
     """Recurse with a callback function in JSON objects.
+
     Converts contents str into dict. This function is a wrapper for recurse_dict.
 
     Args:
@@ -27,13 +33,12 @@ def recurse_json(contents: str, fnc: Callable) -> Tuple[str, bool]:
         d, fnc, d_parent=None, d_parent_key=None, lst=None, lst_idx=None, modified=False
     ):
         """Recurse dict with a callback function.
+
         This function modifies mutable d.
         """
         if isinstance(d, dict):
             for k, v in d.items():
-                modified |= recurse_dict(
-                    v, fnc, d_parent=d, d_parent_key=k, modified=modified
-                )
+                modified |= recurse_dict(v, fnc, d_parent=d, d_parent_key=k, modified=modified)
         elif isinstance(d, list):
             for i, v in enumerate(d):
                 modified |= recurse_dict(v, fnc, lst=d, lst_idx=i, modified=modified)
@@ -48,7 +53,8 @@ def recurse_json(contents: str, fnc: Callable) -> Tuple[str, bool]:
                 elif lst is not None:
                     lst[lst_idx] = new_val
                 else:
-                    raise ValueError("Recursion failed.")
+                    msg = "Recursion failed."
+                    raise ValueError(msg)
         return modified
 
     d = json.loads(contents)
@@ -58,8 +64,9 @@ def recurse_json(contents: str, fnc: Callable) -> Tuple[str, bool]:
     return json.dumps(d, indent=4), modified
 
 
-def recurse_tsv(contents: str, fnc: Callable, delim: str = "\t") -> Tuple[str, bool]:
+def recurse_tsv(contents: str, fnc: Callable, delim: str = "\t") -> tuple[str, bool]:
     """Recurse with a callback function in TSV contents.
+
     Just visit each line and look at values only.
 
     Args:
@@ -91,5 +98,6 @@ def recurse_tsv(contents: str, fnc: Callable, delim: str = "\t") -> Tuple[str, b
     return "\n".join(new_contents), modified
 
 
-def recurse_csv(contents: str, fnc: Callable, delim: str = ",") -> Tuple[str, bool]:
+def recurse_csv(contents: str, fnc: Callable, delim: str = ",") -> tuple[str, bool]:
+    """Same as recurse_tsv but with delimiter ','."""
     return recurse_tsv(contents, fnc, delim=delim)

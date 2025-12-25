@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import logging
 import os
 import sys
 
-from . import __version__ as version
 from .autouri import AutoURI, URIBase
 from .gcsuri import GCSURI
 from .s3uri import S3URI
@@ -103,8 +104,7 @@ def parse_args():
 
     p_rmdir = subparser.add_parser(
         "rmdir",
-        help="AutoURI(src).rmdir(): Recursively delete all files on "
-        "source directory.",
+        help="AutoURI(src).rmdir(): Recursively delete all files on source directory.",
         parents=[parent_src, parent_lock, parent_all],
     )
     p_rmdir.add_argument("--delete", action="store_true", help="DELETE outputs.")
@@ -138,9 +138,7 @@ def parse_args():
         "--gcp-private-key-file",
         help="GCP private key file (JSON format) to presign gs:// URIs.",
     )
-    p_presign.add_argument(
-        "--duration", type=int, help="Duration of presigned URL in seconds."
-    )
+    p_presign.add_argument("--duration", type=int, help="Duration of presigned URL in seconds.")
 
     if len(sys.argv[1:]) == 0:
         parser.print_help()
@@ -148,13 +146,9 @@ def parse_args():
 
     args = parser.parse_args()
     if args.version:
-        print(version)
         parser.exit()
 
-    if args.debug:
-        log_level = "DEBUG"
-    else:
-        log_level = "INFO"
+    log_level = "DEBUG" if args.debug else "INFO"
     logging.basicConfig(
         level=log_level, format="%(asctime)s|%(name)s|%(levelname)s| %(message)s"
     )
@@ -164,19 +158,17 @@ def parse_args():
     return args
 
 
-def get_local_path_if_valid(s):
-    abspath = os.path.abspath(os.path.expanduser(s))
+def get_local_path_if_valid(s) -> str:
+    abspath = str(os.path.abspath(os.path.expanduser(s)))
     dirname = os.path.dirname(abspath)
     if os.path.isdir(abspath):
         return abspath + os.sep
-    elif os.path.exists(abspath):
-        return abspath
-    elif os.path.exists(dirname):
+    if os.path.exists(abspath) or os.path.exists(dirname):
         return abspath
     return s
 
 
-def main():
+def main() -> None:
     args = parse_args()
 
     src = get_local_path_if_valid(args.src)
@@ -187,8 +179,7 @@ def main():
         target = get_local_path_if_valid(args.target)
 
     if args.action == "metadata":
-        m = AutoURI(src).get_metadata()
-        print(m)
+        AutoURI(src).get_metadata()
 
     elif args.action == "cp":
         u_src = AutoURI(src)
@@ -200,7 +191,7 @@ def main():
         )
 
         if flag == 0:
-            logger.info("Copying from file {s} to {t} done".format(s=src, t=target))
+            logger.info(f"Copying from file {src} to {target} done")
         elif flag:
             if flag == 1:
                 reason = "skipped due to md5 hash match"
@@ -208,29 +199,25 @@ def main():
                 reason = "skipped due to filename/size match and mtime test"
             else:
                 raise NotImplementedError
-            logger.info(
-                "Copying from file {s} to {t} {reason}".format(
-                    s=src, t=target, reason=reason
-                )
-            )
+            logger.info(f"Copying from file {src} to {target} {reason}")
     elif args.action == "read":
-        s = AutoURI(src).read()
-        print(s)
+        AutoURI(src).read()
 
     elif args.action == "find":
-        for uri in AutoURI(src).find_all_files():
-            print(uri)
+        for _uri in AutoURI(src).find_all_files():
+            pass
 
     elif args.action == "write":
         AutoURI(src).write(args.text, no_lock=args.no_lock)
-        logger.info("Text has been written to {s}".format(s=src))
+        logger.info(f"Text has been written to {src}")
 
     elif args.action == "rm":
         u = AutoURI(src)
         if not u.exists:
-            raise ValueError("File does not exist. {s}".format(s=src))
+            msg = f"File does not exist. {src}"
+            raise ValueError(msg)
         u.rm(no_lock=args.no_lock)
-        logger.info("Deleted {s}".format(s=src))
+        logger.info(f"Deleted {src}")
 
     elif args.action == "rmdir":
         AutoURI(src).rmdir(
@@ -238,8 +225,7 @@ def main():
         )
         if not args.delete:
             logger.warning(
-                "rmdir ran in a dry-run mode. "
-                "Use --delete to DELETE ALL FILES on a directory."
+                "rmdir ran in a dry-run mode. Use --delete to DELETE ALL FILES on a directory."
             )
 
     elif args.action == "loc":
@@ -251,31 +237,27 @@ def main():
             no_lock=args.no_lock,
         )
         if localized:
-            logger.info("Localized {s} on {t}".format(s=src, t=target))
+            logger.info(f"Localized {src} on {target}")
         else:
-            logger.info("No need to localize {s} on {t}".format(s=src, t=target))
+            logger.info(f"No need to localize {src} on {target}")
 
     elif args.action == "presign":
         u = AutoURI(src)
 
         if isinstance(u, GCSURI):
             if not args.gcp_private_key_file:
-                raise ValueError(
-                    "GCP private key file (--gcp-private-key-file) not found."
-                )
-            url = u.get_presigned_url(
+                msg = "GCP private key file (--gcp-private-key-file) not found."
+                raise ValueError(msg)
+            u.get_presigned_url(
                 duration=args.duration, private_key_file=args.gcp_private_key_file
             )
-            print(url)
 
         elif isinstance(u, S3URI):
-            url = u.get_presigned_url(duration=args.duration)
-            print(url)
+            u.get_presigned_url(duration=args.duration)
 
         else:
-            raise ValueError(
-                "Presigning URL is available for cloud URIs (gs://, s3://) only."
-            )
+            msg = "Presigning URL is available for cloud URIs (gs://, s3://) only."
+            raise ValueError(msg)
 
 
 if __name__ == "__main__":
